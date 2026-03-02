@@ -1,5 +1,5 @@
 // Mock mode - set to false when you have valid OpenAI API credits
-const USE_MOCK = false;
+const USE_MOCK = true;
 
 const OpenAI = require("openai");
 

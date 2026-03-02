@@ -1,13 +1,16 @@
 import { useState, useRef, useEffect } from "react";
-import axios from "axios";
+import { useSocket } from "./hooks/useSocket";
 import "./App.css";
 
 function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [sessionId, setSessionId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [streamingMessage, setStreamingMessage] = useState("");
+  const [useGoogleSearch, setUseGoogleSearch] = useState(false);
   const messagesEndRef = useRef(null);
+
+  const { isConnected, sessionId, startChat, sendMessage } = useSocket();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -15,25 +18,21 @@ function App() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, streamingMessage]);
 
-  // Start a new chat session
-  const startChat = async () => {
-    try {
-      const response = await axios.post("/api/chat/start");
-      setSessionId(response.data.sessionId);
-      setMessages([]);
-      return response.data.sessionId;
-    } catch (error) {
-      console.error("Error starting chat:", error);
-      throw error;
+  // Auto-start chat session on mount
+  useEffect(() => {
+    if (isConnected && !sessionId) {
+      startChat().catch((error) => {
+        console.error("Error starting chat:", error);
+      });
     }
-  };
+  }, [isConnected, sessionId]);
 
-  // Send a message
-  const sendMessage = async (e) => {
+  // Handle sending a message
+  const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || !isConnected || !sessionId) return;
 
     const userMessage = input.trim();
     setInput("");
@@ -41,54 +40,80 @@ function App() {
     // Add user message to UI
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setLoading(true);
+    setStreamingMessage("");
 
     try {
-      // Start session if not exists
-      let currentSessionId = sessionId;
-      if (!currentSessionId) {
-        currentSessionId = await startChat();
-      }
-
-      // Send message to backend
-      const response = await axios.post(
-        `/api/chat/${currentSessionId}/message`,
-        {
-          message: userMessage,
+      sendMessage(
+        userMessage,
+        useGoogleSearch,
+        // onChunk - receive streaming response
+        (chunk) => {
+          setStreamingMessage((prev) => prev + chunk);
+        },
+        // onComplete - response finished
+        (fullResponse) => {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: fullResponse },
+          ]);
+          setStreamingMessage("");
+          setLoading(false);
+        },
+        // onError - handle errors
+        (error) => {
+          console.error("Error sending message:", error);
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: "Sorry, something went wrong. Please try again.",
+            },
+          ]);
+          setStreamingMessage("");
+          setLoading(false);
         },
       );
-
-      // Add AI response to UI
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: response.data.response },
-      ]);
     } catch (error) {
-      console.error("Error sending message:", error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Sorry, something went wrong. Please try again.",
-        },
-      ]);
-    } finally {
+      console.error("Error:", error);
       setLoading(false);
     }
   };
 
   // Start new conversation
-  const newChat = () => {
-    setSessionId(null);
+  const newChat = async () => {
     setMessages([]);
+    setStreamingMessage("");
+    try {
+      await startChat();
+    } catch (error) {
+      console.error("Error starting new chat:", error);
+    }
   };
 
   return (
     <div className="app">
       <header className="header">
         <h1>🤖 AI Chat Assistant</h1>
-        <button onClick={newChat} className="new-chat-btn">
-          + New Chat
-        </button>
+        <div className="header-controls">
+          <label className="search-toggle">
+            <input
+              type="checkbox"
+              checked={useGoogleSearch}
+              onChange={(e) => setUseGoogleSearch(e.target.checked)}
+            />
+            <span>🔍 Use Google Search</span>
+          </label>
+          <button onClick={newChat} className="new-chat-btn">
+            + New Chat
+          </button>
+        </div>
+        <div className="connection-status">
+          {isConnected ? (
+            <span className="status-connected">🟢 Connected</span>
+          ) : (
+            <span className="status-disconnected">🔴 Disconnected</span>
+          )}
+        </div>
       </header>
 
       <div className="chat-container">
@@ -97,6 +122,10 @@ function App() {
             <div className="welcome-message">
               <h2>Welcome to AI Chat Assistant!</h2>
               <p>Start a conversation by typing a message below.</p>
+              <p className="search-hint">
+                💡 Toggle "Use Google Search" to get real-time web results with
+                AI responses!
+              </p>
             </div>
           )}
 
@@ -109,7 +138,15 @@ function App() {
             </div>
           ))}
 
-          {loading && (
+          {/* Show streaming message in real-time */}
+          {streamingMessage && (
+            <div className="message assistant streaming">
+              <div className="message-avatar">🤖</div>
+              <div className="message-content">{streamingMessage}</div>
+            </div>
+          )}
+
+          {loading && !streamingMessage && (
             <div className="message assistant">
               <div className="message-avatar">🤖</div>
               <div className="message-content typing">
@@ -123,16 +160,23 @@ function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        <form onSubmit={sendMessage} className="input-form">
+        <form onSubmit={handleSendMessage} className="input-form">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            disabled={loading}
+            placeholder={
+              useGoogleSearch
+                ? "Ask anything, I'll search Google for you..."
+                : "Type your message..."
+            }
+            disabled={loading || !isConnected}
           />
-          <button type="submit" disabled={loading || !input.trim()}>
-            Send
+          <button
+            type="submit"
+            disabled={loading || !input.trim() || !isConnected}
+          >
+            {loading ? "..." : "Send"}
           </button>
         </form>
       </div>

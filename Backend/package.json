@@ -4,9 +4,11 @@
   "description": "",
   "main": "app.js",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
     "accepts": "^2.0.0",
+    "axios": "^1.13.5",
     "body-parser": "^2.2.2",
     "bytes": "^3.1.2",
     "call-bind-apply-helpers": "^1.0.2",
@@ -71,6 +73,7 @@
     "side-channel-list": "^1.0.0",
     "side-channel-map": "^1.0.1",
     "side-channel-weakmap": "^1.0.2",
+    "socket.io": "^4.8.3",
     "statuses": "^2.0.2",
     "toidentifier": "^1.0.1",
     "type-is": "^2.0.1",
@@ -80,6 +83,7 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
   "keywords": [],
